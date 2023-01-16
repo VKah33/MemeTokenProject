@@ -1,0 +1,256 @@
+// SPDX-License-Identifier: MIT
+// OpenZeppelin Contracts (last updated v4.8.0) (token/ERC20/ERC20.sol)
+// Big Thank You to the OpenZeppelin Community from Bella and VKah33
+// And Thank Swadhin Biswas for some Ideas
+
+pragma solidity ^0.8.0;
+
+import "./IERC20.sol";
+import "./extensions/IERC20Metadata.sol";
+import "../../utils/Context.sol";
+import "../../access/Ownable.sol";
+
+
+
+contract ERC20 is Context, IERC20, IERC20Metadata, Ownable {
+
+    mapping(address => uint256) private _balances;
+
+    mapping(address => mapping(address => uint256)) private _allowances;
+    mapping (address => bool) public whiteList;
+
+    string private tokenName;
+    string private tokenSymbol;
+
+    uint256 private _totalSupply;
+
+    uint256 public walletLimit;
+
+    uint256 Fee;
+    address taxWallet_1;
+    address taxWallet_2;
+
+    constructor (uint256 _walletLimit, uint256 _fee, address _taxWallet_1, address _taxWallet_2, uint256 writeTotalSupply) {
+
+        tokenName = "Bella";
+        tokenSymbol = "BL";
+
+        walletLimit = _walletLimit;
+
+        Fee = _fee;
+        taxWallet_1 = _taxWallet_1;
+        taxWallet_2 = _taxWallet_2;
+        _totalSupply = writeTotalSupply;
+        _balances[msg.sender] = _totalSupply;
+    }
+  
+
+    function walletLimitModifier (uint256 _walletLimit) public {
+        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        walletLimit = _walletLimit;
+    }
+    
+    function feeModifier (uint256 _fee) public {
+        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        require(_fee <= 6, "Bella: Fee can never ever be above 6%" );
+        Fee = _fee;
+    }
+
+    function taxWallet_1_Modifier (address _taxWallet_1) public {
+        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        taxWallet_1 = _taxWallet_1;
+    }
+
+    function taxWallet_2_Modifier (address _taxWallet_2) public {
+        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        taxWallet_2 = _taxWallet_2;
+    }
+
+    function taxCalculator (uint256 _amount) public view returns(uint256){
+        return Fee * _amount  / 100;
+    }
+
+    function whiteListing (address account) public {
+        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        whiteList[account] = true;
+    }
+
+    function tokenName_Modifier (string memory _tokenName) public {
+        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        tokenName = _tokenName;
+    }
+
+    function tokenSymbol_Modifier (string memory _tokenSymbol) public {
+        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        tokenSymbol = _tokenSymbol;
+    }
+    
+    function name() public view virtual override returns (string memory) {
+        return tokenName;
+    }
+
+    function symbol() public view virtual override returns (string memory) {
+        return tokenSymbol;
+    }
+
+    function decimals() public view virtual override returns (uint8) {
+        return 0;
+    }
+
+    function totalSupply() public view virtual override returns (uint256) {
+        return _totalSupply;
+    }
+
+    function balanceOf(address account) public view virtual override returns (uint256) {
+        return _balances[account];
+    }
+
+    function transfer(address to, uint256 amount) public virtual override returns (bool) {
+        address owner = _msgSender();
+        _transfer(owner, to, amount);
+        return true;
+    }
+
+    function allowance(address owner, address spender) public view virtual override returns (uint256) {
+        return _allowances[owner][spender];
+    }
+
+    function approve(address spender, uint256 amount) public virtual override returns (bool) {
+        address owner = _msgSender();
+        _approve(owner, spender, amount);
+        return true;
+    }
+
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) public virtual override returns (bool) {
+        address spender = _msgSender();
+        _spendAllowance(from, spender, amount);
+        _transfer(from, to, amount);
+        return true;
+    }
+
+    function increaseAllowance(address spender, uint256 addedValue) public virtual returns (bool) {
+        address owner = _msgSender();
+        _approve(owner, spender, allowance(owner, spender) + addedValue);
+        return true;
+    }
+
+    function decreaseAllowance(address spender, uint256 subtractedValue) public virtual returns (bool) {
+        address owner = _msgSender();
+        uint256 currentAllowance = allowance(owner, spender);
+        require(currentAllowance >= subtractedValue, "ERC20: decreased allowance below zero");
+        unchecked {
+            _approve(owner, spender, currentAllowance - subtractedValue);
+        }
+
+        return true;
+    }
+
+    function _transfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal virtual {
+        require(from != address(0), "ERC20: transfer from the zero address");
+        require(to != address(0), "ERC20: transfer to the zero address");
+
+        _beforeTokenTransfer(from, to, amount);
+
+        uint256 toBalance = _balances[to];
+        uint256 fromBalance = _balances[from];
+
+        require(fromBalance >= amount, "ERC20: Transfer amount exceeds Balance");
+
+        if ( whiteList[to] == true || whiteList[from] == true ){
+            unchecked {
+                _balances[from] = fromBalance - amount;
+                _balances[to] += amount;
+                    }
+            } else {
+                uint256 Fees = taxCalculator(amount);
+                uint256 Netto = amount - Fees;
+
+                require(Netto + Fees == amount, "Tax calculation is not correct");
+                require(walletLimit >= (toBalance + Netto), "Bella: Transfer amount exceeds Anti-Whale Wallet Limit");
+        
+            unchecked {
+                _balances[taxWallet_1] += Fees/2 ;
+                _balances[taxWallet_2] += Fees/2 ;
+                _balances[from] = fromBalance - amount;
+                _balances[to] += Netto;
+        }
+        }
+
+        emit Transfer(from, to, amount);
+
+        _afterTokenTransfer(from, to, amount);
+    }
+
+    function _burn(address account, uint256 amount) internal virtual {
+        require(account != address(0), "ERC20: burn from the zero address");
+
+        _beforeTokenTransfer(account, address(0), amount);
+
+        uint256 accountBalance = _balances[account];
+        require(accountBalance >= amount, "ERC20: burn amount exceeds balance");
+        unchecked {
+            _balances[account] = accountBalance - amount;
+            _totalSupply -= amount;
+        }
+
+        emit Transfer(account, address(0), amount);
+
+        _afterTokenTransfer(account, address(0), amount);
+    }
+
+    function _approve(
+        address owner,
+        address spender,
+        uint256 amount
+    ) internal virtual {
+        require(owner != address(0), "ERC20: approve from the zero address");
+        require(spender != address(0), "ERC20: approve to the zero address");
+
+        _allowances[owner][spender] = amount;
+        emit Approval(owner, spender, amount);
+    }
+
+    function _spendAllowance(
+        address owner,
+        address spender,
+        uint256 amount
+    ) internal virtual {
+        uint256 currentAllowance = allowance(owner, spender);
+        if (currentAllowance != type(uint256).max) {
+            require(currentAllowance >= amount, "ERC20: insufficient allowance");
+            unchecked {
+                _approve(owner, spender, currentAllowance - amount);
+            }
+        }
+    }
+
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal virtual {}
+
+    function _afterTokenTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal virtual {}
+
+    
+    function burn(uint256 amount) public virtual {
+        _burn(_msgSender(), amount);
+    }
+
+    function burnFrom(address account, uint256 amount) public virtual {
+        _spendAllowance(account, _msgSender(), amount);
+        _burn(account, amount);
+    }
+}
